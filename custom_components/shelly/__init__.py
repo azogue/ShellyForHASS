@@ -29,6 +29,7 @@ try: #Backward compatible with HA
     from homeassistant.helpers.entity_registry import ATTR_RESTORED
 except:
     ATTR_RESTORED = None
+from homeassistant.components import zeroconf
 from homeassistant.helpers.entity import Entity
 from homeassistant.util import slugify, dt as dt_util
 from homeassistant.util import get_local_ip
@@ -62,6 +63,9 @@ async def async_setup_entry(hass, config_entry):
     if not DOMAIN in hass.data:
         hass.data[DOMAIN] = {}
 
+    if not "shared_zeroconf" in hass.data[DOMAIN]:
+        hass.data[DOMAIN]["zeroconf"] = await zeroconf.async_get_instance(hass)
+
     if config_entry.source == "import":
         if config_entry.options: #config.yaml
             data = config_entry.options.copy()
@@ -88,7 +92,7 @@ async def async_setup_entry(hass, config_entry):
             conf[CONF_SENSORS].append(SENSOR_UPTIME)
 
     hass.data[DOMAIN][config_entry.entry_id] = \
-        ShellyInstance(hass, config_entry, conf)
+        ShellyInstance(hass, hass.data[DOMAIN]["zeroconf"], config_entry, conf)
 
     return True
 
@@ -101,8 +105,9 @@ async def async_unload_entry(hass, config_entry):
 class ShellyInstance():
     """Config instance of Shelly"""
 
-    def __init__(self, hass, config_entry, conf):
+    def __init__(self, hass, zeroconf_instance, config_entry, conf):
         self.hass = hass
+        self._zeroconf_instance = zeroconf_instance
         self.config_entry = config_entry
         self.entry_id = self.config_entry.entry_id
         self.platforms = {}
@@ -156,7 +161,10 @@ class ShellyInstance():
         additional_info = conf.get(CONF_ADDITIONAL_INFO)
         update_interval = conf.get(CONF_SCAN_INTERVAL)
 
-        self.pys = pys = pyShelly(self.hass.loop)
+        self.pys = pys = pyShelly(
+            self.hass.loop,
+            zeroconf_instance=self._zeroconf_instance,
+        )
         _LOGGER.info("pyShelly, %s", pys.version())
         pys.cb_block_added.append(self._block_added)
         pys.cb_device_added.append(self._device_added)
